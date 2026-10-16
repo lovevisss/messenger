@@ -2,6 +2,7 @@
 
 use App\Services\Channels\EmailDriver;
 use App\Services\Channels\PortalDriver;
+use App\Services\Channels\PortalMessageDriver;
 use App\Services\Channels\SmsDriver;
 
 return [
@@ -9,6 +10,7 @@ return [
         'email' => EmailDriver::class,
         'sms' => SmsDriver::class,
         'portal' => PortalDriver::class,
+        'portal_message' => PortalMessageDriver::class,
     ],
     'sms' => [
         'url' => env('SMS_URL', 'http://112.35.1.155:1992/sms/norsubmit'),
@@ -24,7 +26,8 @@ return [
         'token_url' => env('PORTAL_TOKEN_URL'),
         'client_id' => env('PORTAL_CLIENT_ID'),
         'client_secret' => env('PORTAL_CLIENT_SECRET'),
-        'scope' => env('PORTAL_SCOPE', 'ttc:v1:writeTransaction'),
+        'scope' => env('PORTAL_SCOPE', 'messagecenter:v1:sendMessage,messagecenter:v1:writeMessage,messagecenter:v1:readMessage,ttc:v1:writeTransaction,ttc:v1:writeTtc'),
         'app_id' => env('PORTAL_APP_ID'),
+        'message_type_code' => env('PORTAL_MESSAGE_TYPE_CODE'),
     ],
 ];

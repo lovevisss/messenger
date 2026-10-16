@@ -17,6 +17,10 @@ Route::get('docs/sms', fn () => Inertia::render('docs/Sms', [
     'apiUrl' => url('/api/v1/notifications'),
 ]))->name('docs.sms');
 
+Route::get('docs/portal', fn () => Inertia::render('docs/Portal', [
+    'apiUrl' => url('/api/v1/notifications'),
+]))->name('docs.portal');
+
 Route::middleware(['auth'])->group(function () {
     Route::get('dashboard', function (Request $request) {
         $isAdmin = (bool) $request->user()->is_admin;
@@ -27,6 +31,9 @@ Route::middleware(['auth'])->group(function () {
                 'email' => config('mail.default') === 'smtp' && filled(config('mail.mailers.smtp.username')) && filled(config('mail.mailers.smtp.password')),
                 'sms' => collect(['ec_name', 'ap_id', 'secret_key', 'sign'])->every(fn ($key) => filled(config('notifications.sms.'.$key))),
                 'portal' => filled(config('notifications.portal.base_url')) && filled(config('notifications.portal.app_id'))
+                    && (filled(config('notifications.portal.poa_token')) || (filled(config('notifications.portal.client_id')) && filled(config('notifications.portal.client_secret')))),
+                'portal_message' => filled(config('notifications.portal.base_url')) && filled(config('notifications.portal.app_id'))
+                    && filled(config('notifications.portal.message_type_code'))
                     && (filled(config('notifications.portal.poa_token')) || (filled(config('notifications.portal.client_id')) && filled(config('notifications.portal.client_secret')))),
             ],
             'channelCounts' => $isAdmin

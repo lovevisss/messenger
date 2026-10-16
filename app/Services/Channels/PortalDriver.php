@@ -97,7 +97,8 @@ class PortalDriver implements ChannelDriver
             }
             $body = $response->json();
             if (! $response->successful() || ! is_array($body) || ($body['code'] ?? null) !== 0) {
-                return ChannelOutcome::failed('门户接口失败：HTTP '.$response->status(), $response->serverError());
+                return ChannelOutcome::failed('门户接口失败：HTTP '.$response->status().'，code '.($body['code'] ?? 'unknown'),
+                    $response->serverError() || $response->status() === 429);
             }
             if (! empty($body['data']['errorIds'])) {
                 $error = $body['data']['errorIds'][0];

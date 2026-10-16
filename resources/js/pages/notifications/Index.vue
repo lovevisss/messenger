@@ -27,10 +27,10 @@ type PageLink = { url: string | null; label: string; active: boolean };
 const props = defineProps<{
     records: { data: RecordItem[]; links: PageLink[]; total: number };
     clients: Client[];
-    channelStatus: Record<'email' | 'sms' | 'portal', boolean>;
-    channelDetails: Record<'email' | 'sms' | 'portal', Record<string, string>>;
+    channelStatus: Record<'email' | 'sms' | 'portal' | 'portal_message', boolean>;
+    channelDetails: Record<'email' | 'sms' | 'portal' | 'portal_message', Record<string, string>>;
     newKey?: string | null;
-    activeChannel: 'email' | 'sms' | 'portal' | null;
+    activeChannel: 'email' | 'sms' | 'portal' | 'portal_message' | null;
     filters: { search: string; client: number | null };
 }>();
 
@@ -54,8 +54,14 @@ const channels = computed(() => [
         icon: MessageSquareText,
     },
     {
+        key: 'portal_message' as const,
+        name: '门户消息',
+        detail: 'POA · WEBSITE 站内消息',
+        icon: MessageSquareText,
+    },
+    {
         key: 'portal' as const,
-        name: '信息门户',
+        name: '门户待办',
         detail: 'POA · 待办事务',
         icon: RadioTower,
     },
@@ -121,7 +127,7 @@ function statusLabel(value: string) {
                         消息平台
                     </h1>
                     <p class="mt-2 text-sm text-[#64736c]">
-                        统一查看三个渠道的配置、接入系统与发送结果。
+                        统一查看四个渠道的配置、接入系统与发送结果。
                     </p>
                     <div class="mt-3 flex flex-wrap gap-4">
                         <Link
@@ -133,6 +139,11 @@ function statusLabel(value: string) {
                             href="/docs/sms"
                             class="inline-flex items-center gap-1 text-sm font-medium text-[#287257] hover:underline"
                             >短信 API 接入文档 <ArrowUpRight class="size-4"
+                        /></Link>
+                        <Link
+                            href="/docs/portal"
+                            class="inline-flex items-center gap-1 text-sm font-medium text-[#287257] hover:underline"
+                            >门户 API 接入文档 <ArrowUpRight class="size-4"
                         /></Link>
                     </div>
                 </div>
@@ -146,7 +157,7 @@ function statusLabel(value: string) {
                 </div>
             </header>
 
-            <section class="grid gap-4 md:grid-cols-3" aria-label="渠道状态">
+            <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-4" aria-label="渠道状态">
                 <article
                     v-for="item in channels"
                     :key="item.key"
@@ -197,7 +208,7 @@ function statusLabel(value: string) {
                         >更改环境变量后请重启队列 worker</span
                     >
                 </div>
-                <div class="grid gap-4 lg:grid-cols-3">
+                <div class="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
                     <div
                         v-for="item in channels"
                         :key="item.key"

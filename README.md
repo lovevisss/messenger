@@ -1,6 +1,6 @@
 # 消息提醒平台
 
-Laravel 13 + Vue 的统一消息接口。当前渠道为邮件、MAS 短信及信息门户待办。每个渠道有独立驱动，后续可注册企业微信或钉钉驱动。
+Laravel 13 + Vue 的统一消息接口。当前渠道为邮件、MAS 短信、门户站内消息及信息门户待办。每个渠道有独立驱动，后续可注册企业微信或钉钉驱动。
 
 ## 启动
 
@@ -9,11 +9,11 @@ Laravel 13 + Vue 的统一消息接口。当前渠道为邮件、MAS 短信及�
 3. 注册后台用户后运行 `php artisan notifications:grant-admin 用户邮箱`。管理员登录后可在 Dashboard 选择邮件、短信或信息门户入口，进入 `/notifications` 管理接入系统并保存只显示一次的 API 密钥。后台账号不要求邮箱验证。
 4. 可运行 `php artisan notifications:test-email 收件邮箱` 测试 SMTP 提交。命令成功仅表示邮件服务器接受，最终到达需检查收件箱。
 
-短信配置项为 `SMS_URL`、`SMS_EC_NAME`、`SMS_AP_ID`、`SMS_SECRET_KEY`、`SMS_SIGN`、`SMS_ADD_SERIAL`。接口的 `secretKey` 仅用于计算 MAC，不随请求发送。门户配置 `PORTAL_BASE_URL`、`PORTAL_APP_ID`，并优先使用 `PORTAL_CLIENT_ID`、`PORTAL_CLIENT_SECRET` 和 `PORTAL_SCOPE` 自动获取、缓存 POA token；如使用手动 token，则设置 `PORTAL_POA_TOKEN`。特殊 POA 地址可设置 `PORTAL_TOKEN_URL`。门户调用在 `Authorization` 头直接传 token。管理后台只显示各渠道是否已配置。
+短信配置项为 `SMS_URL`、`SMS_EC_NAME`、`SMS_AP_ID`、`SMS_SECRET_KEY`、`SMS_SIGN`、`SMS_ADD_SERIAL`。平台按云 MAS 接口要求使用 `secretKey` 计算 MAC，并将其包含在发往 MAS 的请求体中；业务系统只需使用平台签发的接入密钥。门户配置 `PORTAL_BASE_URL`、`PORTAL_APP_ID`；站内消息还需 `PORTAL_MESSAGE_TYPE_CODE`。优先使用 `PORTAL_CLIENT_ID`、`PORTAL_CLIENT_SECRET` 和 `PORTAL_SCOPE` 自动获取、缓存 POA token，多个 scope 用英文逗号分隔；如使用手动 token，则设置 `PORTAL_POA_TOKEN`。特殊 POA 地址可设置 `PORTAL_TOKEN_URL`。管理后台只显示非敏感配置。
 
 ## 调用接口
 
-可直接打开 `/docs/email` 和 `/docs/sms` 查看可分享的邮件及短信 API 接入文档（无需登录），包括字段说明、Bash 与 PowerShell 示例、响应状态和错误处理。信息门户文档入口已预留。
+可直接打开 `/docs/email`、`/docs/sms` 和 `/docs/portal` 查看可分享的 API 接入文档（无需登录）。
 
 所有接口使用 `Authorization: Bearer <接入系统密钥>`，按接入系统限制为每分钟 120 次。POST 提交成功返回 `202` 和任务号；相同系统的相同 `request_id` 返回原任务与 `200`，不重复发送。接口使用 JSON，请求失败返回 Laravel 标准 JSON 错误。
 
@@ -36,7 +36,23 @@ Laravel 13 + Vue 的统一消息接口。当前渠道为邮件、MAS 短信及�
 }
 ```
 
-选择 `sms` 时，收件人提供 `mobile`；一次请求的短信正文相同，MAS 单批最多 5000 个号码，平台自动拆批。单次请求最多 10000 名收件人。邮件按小批队列处理，门户每条待办独立处理。选择多个渠道时，每位收件人需提供对应的地址。
+选择 `sms` 时，收件人提供 `mobile`；一次请求的短信正文相同，MAS 单批最多 5000 个号码，平台自动拆批。单次请求最多 10000 名收件人。邮件按小批队列处理，门户消息和待办每位收件人独立处理。选择多个渠道时，每位收件人需提供对应的地址。
+
+短信 `content` 由业务系统提供，平台原样转发；业务系统应使用云 MAS 已审批的短信签名和模板内容。
+
+### 发送门户站内消息
+
+`channels` 选择 `portal_message`，收件人的 `portal_account` 填学工号。平台固定发送方式为 `WEBSITE`，把 `content` 映射到消息类型模板的 `content` 参数。消息类型需在门户消息中台配置好相应模板。
+
+```json
+{
+    "request_id": "jwc:notice:202610090001",
+    "channels": ["portal_message"],
+    "title": "请查看通知",
+    "content": "您有一条新的业务消息。",
+    "recipients": [{ "id": "20150301", "portal_account": "20150301" }]
+}
+```
 
 ### 创建门户待办
 
@@ -66,6 +82,8 @@ Laravel 13 + Vue 的统一消息接口。当前渠道为邮件、MAS 短信及�
 ```
 
 每位门户收件人有独立的 `business_task_id`，在同一接入系统下全局唯一。后续节点由业务系统再次调用发送接口创建，新任务的收件人增加 `previous_business_task_id`，平台会映射到上一门户任务。业务系统负责决定流程和处理人。
+
+门户真实联调前，请确认服务器能访问 `PORTAL_BASE_URL`，队列 worker 正在运行，`APP_URL` 是测试人能打开的实际地址。用 `/docs/portal` 的两个示例分别向 `20150301` 提交消息和待办；每次测试更换 `request_id`，待办还需更换 `business_task_id`。待办测试可把 `portal.handle_url` 和 `portal.view_url` 设为实际服务的 `/dashboard`。通过查询接口确认逐渠道 `accepted`，并在门户账号中检查显示结果。测试待办不会自动撤销。
 
 ### 查询与变更
 

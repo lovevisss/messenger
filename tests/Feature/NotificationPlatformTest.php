@@ -39,6 +39,146 @@ class NotificationPlatformTest extends TestCase
                 ->where('apiUrl', url('/api/v1/notifications')));
     }
 
+    public function test_portal_integration_document_is_public(): void
+    {
+        $this->get('/docs/portal')->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->component('docs/Portal')
+                ->where('apiUrl', url('/api/v1/notifications')));
+    }
+
+    public function test_portal_message_uses_website_template_and_records_send_id(): void
+    {
+        Queue::fake();
+        $key = $this->client();
+        config()->set('notifications.portal', [
+            'base_url' => 'https://portal.example.test', 'poa_token' => null, 'token_url' => null,
+            'client_id' => 'client-id', 'client_secret' => 'client-secret',
+            'scope' => 'messagecenter:v1:sendMessage,ttc:v1:writeTransaction',
+            'app_id' => 'app-1', 'message_type_code' => 'MT123',
+        ]);
+        Http::fake([
+            'portal.example.test/oauth2/token' => Http::response(['access_token' => 'access-token', 'expires_in' => 3600]),
+            'portal.example.test/apis/messagecenter/*' => Http::response(['code' => 0, 'data' => ['sendId' => 'upstream-1', 'errorList' => null]]),
+        ]);
+        $id = $this->withToken($key)->postJson('/api/v1/notifications', [
+            'request_id' => 'portal-message-1', 'channels' => ['portal_message'],
+            'title' => '测试标题', 'content' => '测试内容',
+            'recipients' => [['id' => '20150301', 'portal_account' => '20150301']],
+        ])->assertAccepted()->json('id');
+
+        app()->call([new SendNotification($id), 'handle']);
+
+        Http::assertSent(function ($request) {
+            if (! str_ends_with($request->url(), '/messageSend')) {
+                return false;
+            }
+            $body = $request->data();
+
+            return $request->hasHeader('Authorization', 'Bearer access-token')
+                && $body['appId'] === 'app-1'
+                && $body['messageTypeCode'] === 'MT123'
+                && $body['toPersons'] === '20150301'
+                && $body['sendType'] === ['WEBSITE']
+                && $body['data']['title'] === '测试标题'
+                && $body['data']['paramValueJson']['content'] === '测试内容';
+        });
+        $this->withToken($key)->getJson('/api/v1/notifications/'.$id)->assertJsonPath('deliveries.0.provider_ref', 'upstream-1');
+        $this->assertSame('accepted', NotificationDelivery::firstOrFail()->status);
+    }
+
+    public function test_portal_message_failure_is_recorded_without_marking_accepted(): void
+    {
+        Queue::fake();
+        $key = $this->client();
+        config()->set('notifications.portal', [
+            'base_url' => 'https://portal.example.test', 'poa_token' => 'static-token',
+            'app_id' => 'app-1', 'message_type_code' => 'MT123',
+        ]);
+        Http::fake(['portal.example.test/apis/messagecenter/*' => Http::response([
+            'code' => 0, 'data' => ['sendId' => 'upstream-2', 'errorList' => [['account' => '20150301']]],
+        ])]);
+        $id = $this->withToken($key)->postJson('/api/v1/notifications', [
+            'request_id' => 'portal-message-failure', 'channels' => ['portal_message'],
+            'title' => '测试标题', 'content' => '测试内容',
+            'recipients' => [['id' => '20150301', 'portal_account' => '20150301']],
+        ])->assertAccepted()->json('id');
+
+        app()->call([new SendNotification($id), 'handle']);
+
+        $this->assertSame('failed', NotificationDelivery::firstOrFail()->status);
+        $this->withToken($key)->getJson('/api/v1/notifications/'.$id)
+            ->assertJsonPath('status', 'failed')
+            ->assertJsonPath('deliveries.0.error', '门户消息部分发送失败');
+    }
+
+    public function test_portal_message_refreshes_token_after_unauthorized_response(): void
+    {
+        Queue::fake();
+        $key = $this->client();
+        config()->set('notifications.portal', [
+            'base_url' => 'https://portal.example.test', 'poa_token' => null, 'token_url' => null,
+            'client_id' => 'refresh-client', 'client_secret' => 'refresh-secret',
+            'scope' => 'messagecenter:v1:sendMessage,ttc:v1:writeTransaction',
+            'app_id' => 'app-1', 'message_type_code' => 'MT123',
+        ]);
+        $tokensIssued = 0;
+        Http::fake(function ($request) use (&$tokensIssued) {
+            if (str_ends_with($request->url(), '/oauth2/token')) {
+                $tokensIssued++;
+
+                return Http::response(['access_token' => 'token-'.$tokensIssued, 'expires_in' => 3600]);
+            }
+
+            return $request->hasHeader('Authorization', 'Bearer token-1')
+                ? Http::response([], 401)
+                : Http::response(['code' => 0, 'data' => ['sendId' => 'refreshed-send', 'errorList' => []]]);
+        });
+        $id = $this->withToken($key)->postJson('/api/v1/notifications', [
+            'request_id' => 'portal-message-refresh', 'channels' => ['portal_message'],
+            'title' => '测试标题', 'content' => '测试内容',
+            'recipients' => [['id' => '20150301', 'portal_account' => '20150301']],
+        ])->assertAccepted()->json('id');
+
+        app()->call([new SendNotification($id), 'handle']);
+
+        $this->assertSame(2, $tokensIssued);
+        $this->assertSame('refreshed-send', NotificationDelivery::firstOrFail()->provider_ref);
+        Http::assertSent(function ($request) {
+            return str_ends_with($request->url(), '/oauth2/token')
+                && $request['scope'] === 'messagecenter:v1:sendMessage,ttc:v1:writeTransaction';
+        });
+    }
+
+    public function test_portal_message_and_task_keep_independent_delivery_statuses(): void
+    {
+        Queue::fake();
+        $key = $this->client();
+        config()->set('notifications.portal', [
+            'base_url' => 'https://portal.example.test', 'poa_token' => 'static-token',
+            'app_id' => 'app-1', 'message_type_code' => 'MT123',
+        ]);
+        Http::fake([
+            'portal.example.test/apis/messagecenter/*' => Http::response(['code' => 0, 'data' => ['sendId' => 'sent-1']]),
+            'portal.example.test/apis/ttc/*' => Http::response(['code' => 0, 'data' => [
+                'errorIds' => [['code' => 400, 'message' => 'invalid task']],
+            ]]),
+        ]);
+        $id = $this->withToken($key)->postJson('/api/v1/notifications', [
+            'request_id' => 'portal-mixed', 'channels' => ['portal_message', 'portal'],
+            'title' => '测试标题', 'content' => '测试内容',
+            'portal' => ['node_id' => 'node-1', 'node_name' => '审核', 'trans_type_code' => 'type-1', 'trans_type_name' => '提醒'],
+            'recipients' => [[
+                'id' => '20150301', 'portal_account' => '20150301', 'business_task_id' => 'task-1',
+            ]],
+        ])->assertAccepted()->json('id');
+
+        app()->call([new SendNotification($id), 'handle']);
+
+        $this->withToken($key)->getJson('/api/v1/notifications/'.$id)->assertJsonPath('status', 'partial');
+        $this->assertSame('accepted', NotificationDelivery::where('channel', 'portal_message')->firstOrFail()->status);
+        $this->assertSame('failed', NotificationDelivery::where('channel', 'portal')->firstOrFail()->status);
+    }
+
     public function test_email_submission_is_idempotent_and_dispatches_to_every_recipient(): void
     {
         Queue::fake();
@@ -77,27 +217,36 @@ class NotificationPlatformTest extends TestCase
         $this->withToken('another-key')->getJson('/api/v1/notifications/'.$id)->assertNotFound();
     }
 
-    public function test_sms_payload_uses_base64_and_mac_without_secret_in_body(): void
+    public function test_sms_payload_uses_base64_and_mac_with_secret_in_body(): void
     {
         Queue::fake();
         $key = $this->client();
         config()->set('notifications.sms', [
-            'url' => 'https://sms.example.test/send', 'ec_name' => '学校', 'ap_id' => 'api',
-            'secret_key' => 'private-secret', 'sign' => 'signature', 'add_serial' => '',
+            'url' => 'https://sms.example.test/send', 'ec_name' => '测试学校信息技术部', 'ap_id' => 'api',
+            'secret_key' => 'private-secret', 'sign' => 'sign-code-O', 'add_serial' => '',
         ]);
         Http::fake(['sms.example.test/*' => Http::response(['rspcod' => 'success', 'success' => true, 'msgGroup' => 'batch-1'])]);
         $id = $this->withToken($key)->postJson('/api/v1/notifications', [
-            'request_id' => 'sms-1', 'channels' => ['sms'], 'title' => '提醒', 'content' => '测试短信',
+            'request_id' => 'sms-1', 'channels' => ['sms'], 'title' => '提醒', 'content' => '【测试学校信息技术部】测试短信',
             'recipients' => [['id' => 'a', 'mobile' => '13800138000'], ['id' => 'b', 'mobile' => '13800138001']],
         ])->assertAccepted()->json('id');
 
         app()->call([new SendNotification($id), 'handle']);
         Http::assertSent(function ($request) {
-            $payload = json_decode(base64_decode($request->body()), true);
+            $json = base64_decode($request->body(), true);
+            $payload = $json === false ? null : json_decode($json, true);
 
-            return $payload['mobiles'] === '13800138000,13800138001'
-                && ! isset($payload['secretKey'])
-                && $payload['mac'] === md5('学校'.'api'.'private-secret'.$payload['mobiles'].'测试短信'.'signature');
+            return $request->hasHeader('Content-Type', 'application/json')
+                && is_array($payload)
+                && str_contains($json, '\\u')
+                && $payload['ecName'] === '测试学校信息技术部'
+                && $payload['apId'] === 'api'
+                && $payload['secretKey'] === 'private-secret'
+                && $payload['sign'] === 'sign-code-O'
+                && $payload['content'] === '【测试学校信息技术部】测试短信'
+                && $payload['mobiles'] === '13800138000,13800138001'
+                && $payload['addSerial'] === ''
+                && $payload['mac'] === md5('测试学校信息技术部'.'api'.'private-secret'.$payload['mobiles'].$payload['content'].'sign-code-O');
         });
         $this->assertSame(2, NotificationDelivery::where('provider_ref', 'batch-1')->count());
     }
@@ -171,6 +320,7 @@ class NotificationPlatformTest extends TestCase
     {
         Queue::fake();
         Mail::fake();
+        config()->set('notifications.sms.secret_key', null);
         $key = $this->client();
         $id = $this->withToken($key)->postJson('/api/v1/notifications', [
             'request_id' => 'mixed-1', 'channels' => ['email', 'sms'], 'title' => '提醒', 'content' => '内容',
@@ -309,25 +459,25 @@ class NotificationPlatformTest extends TestCase
 
         $this->actingAs($user)->get('/notifications?channel=email&search=20230001&client='.$firstClient->id)
             ->assertOk()->assertInertia(fn (Assert $page) => $page->component('notifications/Index')
-                ->where('filters.search', '20230001')
-                ->where('filters.client', $firstClient->id)
-                ->where('records.total', 1)
-                ->where('records.data.0.request_id', 'jwc:leave:0001'));
+            ->where('filters.search', '20230001')
+            ->where('filters.client', $firstClient->id)
+            ->where('records.total', 1)
+            ->where('records.data.0.request_id', 'jwc:leave:0001'));
 
         $this->actingAs($user)->get('/notifications?channel=email&search=teacher2@example.edu.cn&client='.$firstClient->id)
             ->assertOk()->assertInertia(fn (Assert $page) => $page->where('records.total', 0));
 
         $this->actingAs($user)->get('/notifications?channel=email&search=teacher2@example.edu.cn&client='.$secondClient->id)
             ->assertOk()->assertInertia(fn (Assert $page) => $page->where('records.total', 1)
-                ->where('records.data.0.request_id', 'hr:hire:0002'));
+            ->where('records.data.0.request_id', 'hr:hire:0002'));
 
         $this->actingAs($user)->get('/notifications?channel=email&search=请假')
             ->assertOk()->assertInertia(fn (Assert $page) => $page->where('records.total', 1)
-                ->where('records.data.0.request_id', 'jwc:leave:0001'));
+            ->where('records.data.0.request_id', 'jwc:leave:0001'));
 
         $this->actingAs($user)->get('/notifications?channel=email&search=hr:hire')
             ->assertOk()->assertInertia(fn (Assert $page) => $page->where('records.total', 1)
-                ->where('records.data.0.client_system.name', '人事系统'));
+            ->where('records.data.0.client_system.name', '人事系统'));
     }
 
     public function test_unverified_user_can_open_dashboard_and_admin_can_use_channel_entrances(): void

@@ -55,7 +55,7 @@ class NotificationController extends Controller
         $channels = $data['channels'];
         $errors = [];
         foreach ($data['recipients'] as $index => $recipient) {
-            foreach (['email' => 'email', 'sms' => 'mobile', 'portal' => 'portal_account'] as $channel => $field) {
+            foreach (['email' => 'email', 'sms' => 'mobile', 'portal' => 'portal_account', 'portal_message' => 'portal_account'] as $channel => $field) {
                 if (in_array($channel, $channels, true) && blank($recipient[$field] ?? null)) {
                     $errors["recipients.$index.$field"] = '所选渠道要求提供此收件地址';
                 }
@@ -92,7 +92,7 @@ class NotificationController extends Controller
                 ]);
                 foreach ($data['recipients'] as $recipient) {
                     foreach ($channels as $channel) {
-                        $address = $recipient[['email' => 'email', 'sms' => 'mobile', 'portal' => 'portal_account'][$channel]];
+                        $address = $recipient[['email' => 'email', 'sms' => 'mobile', 'portal' => 'portal_account', 'portal_message' => 'portal_account'][$channel]];
                         $notification->deliveries()->create([
                             'client_system_id' => $client->id, 'recipient_id' => $recipient['id'],
                             'channel' => $channel, 'address' => $address,
@@ -108,6 +108,7 @@ class NotificationController extends Controller
                         'email' => 3,
                         'sms' => 5000,
                         'portal' => 1,
+                        'portal_message' => 1,
                         default => 10,
                     };
                     $notification->deliveries()->where('channel', $channel)->pluck('id')

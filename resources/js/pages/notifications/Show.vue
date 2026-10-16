@@ -35,6 +35,7 @@ const channelName: Record<string, string> = {
     email: '邮件',
     sms: '短信',
     portal: '信息门户',
+    portal_message: '门户消息',
 };
 </script>
 

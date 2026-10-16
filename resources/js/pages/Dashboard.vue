@@ -11,8 +11,8 @@ import { dashboard } from '@/routes';
 
 const props = defineProps<{
     canManageNotifications: boolean;
-    channelStatus: Record<'email' | 'sms' | 'portal', boolean>;
-    channelCounts: Partial<Record<'email' | 'sms' | 'portal', number>>;
+    channelStatus: Record<'email' | 'sms' | 'portal' | 'portal_message', boolean>;
+    channelCounts: Partial<Record<'email' | 'sms' | 'portal' | 'portal_message', number>>;
 }>();
 
 const channels = [
@@ -33,11 +33,19 @@ const channels = [
         href: '/notifications?channel=sms#channel-sms',
     },
     {
+        key: 'portal_message' as const,
+        name: '门户站内消息',
+        description: '通过 POA 消息中心发送门户站内提醒。',
+        icon: MessageSquareText,
+        number: '03',
+        href: '/notifications?channel=portal_message#channel-portal_message',
+    },
+    {
         key: 'portal' as const,
         name: '信息门户待办',
         description: '向门户创建待办，并管理完成与撤销状态。',
         icon: ListTodo,
-        number: '03',
+        number: '04',
         href: '/notifications?channel=portal#channel-portal',
     },
 ];
@@ -63,7 +71,7 @@ defineOptions({
                     消息提醒平台
                 </h1>
                 <p class="mt-3 max-w-2xl text-sm leading-7 text-[#64736c]">
-                    从邮件、短信和信息门户进入对应渠道，查看配置与发送记录。业务系统通过统一
+                    从邮件、短信和门户渠道进入对应渠道，查看配置与发送记录。业务系统通过统一
                     API 提交提醒。
                 </p>
             </header>
@@ -107,6 +115,11 @@ defineOptions({
                             >短信接入文档</Link
                         >
                         <Link
+                            href="/docs/portal"
+                            class="text-sm font-medium text-[#287257] hover:underline"
+                            >门户接入文档</Link
+                        >
+                        <Link
                             v-if="props.canManageNotifications"
                             href="/notifications"
                             class="text-sm font-medium text-[#287257] hover:underline"
@@ -114,7 +127,7 @@ defineOptions({
                         >
                     </div>
                 </div>
-                <div class="grid gap-4 md:grid-cols-3">
+                <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <component
                         :is="props.canManageNotifications ? Link : 'div'"
                         v-for="channel in channels"

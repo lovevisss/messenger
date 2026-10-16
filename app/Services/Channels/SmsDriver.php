@@ -30,11 +30,12 @@ class SmsDriver implements ChannelDriver
             $payload = [
                 'ecName' => $settings['ec_name'], 'apId' => $settings['ap_id'],
                 'mobiles' => $mobiles, 'content' => $content, 'sign' => $settings['sign'],
+                'secretKey' => $settings['secret_key'],
                 'addSerial' => $serial, 'mac' => $mac,
             ];
 
             try {
-                $response = Http::timeout(15)->withBody(base64_encode(json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)), 'application/json')->post($settings['url']);
+                $response = Http::timeout(15)->withBody(base64_encode(json_encode($payload, JSON_THROW_ON_ERROR)), 'application/json')->post($settings['url']);
                 $body = $response->json();
                 $code = is_array($body) ? ($body['rspcod'] ?? '') : '';
                 $accepted = $response->successful() && $code === 'success' && ($body['success'] ?? true) !== false;

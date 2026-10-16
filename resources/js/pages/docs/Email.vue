@@ -9,9 +9,11 @@ import {
     ShieldCheck,
 } from '@lucide/vue';
 import { computed, ref } from 'vue';
+import { copyText } from '@/lib/copyText';
 
 const props = defineProps<{ apiUrl: string }>();
 const copied = ref<string | null>(null);
+const copyFeedback = ref('');
 
 const requestBody = `{
   "request_id": "jwc:leave:202610080001",
@@ -78,21 +80,28 @@ const sections = [
 ];
 
 async function copy(value: string, key: string) {
-    try {
-        await navigator.clipboard.writeText(value);
-        copied.value = key;
-        window.setTimeout(() => {
-            copied.value = null;
-        }, 2000);
-    } catch {
+    const success = await copyText(value);
+    copied.value = success ? key : null;
+    copyFeedback.value = success
+        ? '已复制到剪贴板'
+        : '复制失败，请选中内容后按 Ctrl+C 手动复制';
+    window.setTimeout(() => {
         copied.value = null;
-    }
+        copyFeedback.value = '';
+    }, 3000);
 }
 </script>
 
 <template>
     <Head title="邮件 API 接入文档" />
     <div class="min-h-screen bg-[#f6f7f3] font-sans text-[#192b29]">
+        <p
+            v-if="copyFeedback"
+            role="status"
+            class="fixed right-5 bottom-5 z-50 rounded-lg bg-[#194f3e] px-4 py-3 text-sm font-medium text-white shadow-lg"
+        >
+            {{ copyFeedback }}
+        </p>
         <header class="border-b border-[#dbe3dc] bg-[#f6f7f3]/95">
             <div
                 class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4 md:px-8"
@@ -142,10 +151,11 @@ async function copy(value: string, key: string) {
                         class="block rounded-lg px-3 py-2.5 text-sm text-[#6e7f73] hover:bg-[#edf4ed] hover:text-[#205d43]"
                         >02　短信</Link
                     >
-                    <div class="px-3 py-2.5 text-sm text-[#9aa79e]">
-                        03　信息门户
-                        <span class="float-right text-xs">待完善</span>
-                    </div>
+                    <Link
+                        href="/docs/portal"
+                        class="block rounded-lg px-3 py-2.5 text-sm text-[#6e7f73] hover:bg-[#edf4ed] hover:text-[#205d43]"
+                        >03　信息门户</Link
+                    >
                 </div>
                 <nav
                     class="mt-7 hidden space-y-1 border-l border-[#d8e2da] pl-3 lg:block"

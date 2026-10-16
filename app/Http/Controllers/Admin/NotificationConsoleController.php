@@ -16,7 +16,7 @@ class NotificationConsoleController extends Controller
     public function index(Request $request): Response
     {
         $channel = $request->query('channel');
-        $channel = in_array($channel, ['email', 'sms', 'portal'], true) ? $channel : null;
+        $channel = in_array($channel, ['email', 'sms', 'portal', 'portal_message'], true) ? $channel : null;
         $search = $request->query('search');
         $search = is_string($search) ? trim(mb_substr($search, 0, 120)) : '';
         $clientId = $request->integer('client');
@@ -47,6 +47,9 @@ class NotificationConsoleController extends Controller
                 'sms' => collect(['ec_name', 'ap_id', 'secret_key', 'sign'])->every(fn ($key) => filled(config('notifications.sms.'.$key))),
                 'portal' => filled(config('notifications.portal.base_url')) && filled(config('notifications.portal.app_id'))
                     && (filled(config('notifications.portal.poa_token')) || (filled(config('notifications.portal.client_id')) && filled(config('notifications.portal.client_secret')))),
+                'portal_message' => filled(config('notifications.portal.base_url')) && filled(config('notifications.portal.app_id'))
+                    && filled(config('notifications.portal.message_type_code'))
+                    && (filled(config('notifications.portal.poa_token')) || (filled(config('notifications.portal.client_id')) && filled(config('notifications.portal.client_secret')))),
             ],
             'channelDetails' => [
                 'email' => [
@@ -66,6 +69,12 @@ class NotificationConsoleController extends Controller
                     'POA 地址' => (string) config('notifications.portal.base_url'),
                     '门户应用 ID' => (string) config('notifications.portal.app_id'),
                     '令牌来源' => filled(config('notifications.portal.poa_token')) ? '手动令牌' : 'OAuth 客户端凭据',
+                ],
+                'portal_message' => [
+                    'POA 地址' => (string) config('notifications.portal.base_url'),
+                    '门户应用 ID' => (string) config('notifications.portal.app_id'),
+                    '消息类型编码' => (string) config('notifications.portal.message_type_code'),
+                    '发送方式' => 'WEBSITE',
                 ],
             ],
             'newKey' => $request->session()->pull('new_client_key'),
