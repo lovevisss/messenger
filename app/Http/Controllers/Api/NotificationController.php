@@ -7,6 +7,7 @@ use App\Jobs\ChangePortalTask;
 use App\Jobs\SendNotification;
 use App\Models\NotificationDelivery;
 use App\Models\NotificationRequest;
+use App\Services\PersonnelDirectory;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,10 +15,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use PDOException;
+use RuntimeException;
 
 class NotificationController extends Controller
 {
-    public function store(Request $request): JsonResponse
+    public function store(Request $request, PersonnelDirectory $directory): JsonResponse
     {
         $client = $request->attributes->get('client_system');
         $data = $request->validate([
@@ -28,8 +31,8 @@ class NotificationController extends Controller
             'content' => ['required', 'string', 'max:10000'],
             'recipients' => ['required', 'array', 'min:1', 'max:10000'],
             'recipients.*.id' => ['required', 'string', 'max:120', 'distinct'],
-            'recipients.*.email' => ['nullable', 'email', 'max:255'],
-            'recipients.*.mobile' => ['nullable', 'regex:/^1[3-9][0-9]{9}$/'],
+            'recipients.*.email' => ['nullable', 'string', 'max:255'],
+            'recipients.*.mobile' => ['nullable', 'string', 'max:255'],
             'recipients.*.portal_account' => ['nullable', 'string', 'max:120'],
             'recipients.*.business_task_id' => ['nullable', 'string', 'max:120'],
             'recipients.*.previous_business_task_id' => ['nullable', 'string', 'max:120'],
@@ -55,11 +58,6 @@ class NotificationController extends Controller
         $channels = $data['channels'];
         $errors = [];
         foreach ($data['recipients'] as $index => $recipient) {
-            foreach (['email' => 'email', 'sms' => 'mobile', 'portal' => 'portal_account', 'portal_message' => 'portal_account'] as $channel => $field) {
-                if (in_array($channel, $channels, true) && blank($recipient[$field] ?? null)) {
-                    $errors["recipients.$index.$field"] = '所选渠道要求提供此收件地址';
-                }
-            }
             if (in_array('portal', $channels, true) && blank($recipient['business_task_id'] ?? null)) {
                 $errors["recipients.$index.business_task_id"] = '门户待办要求业务任务号';
             }
@@ -84,23 +82,40 @@ class NotificationController extends Controller
         }
 
         try {
-            $notification = DB::transaction(function () use ($client, $data, $channels) {
+            $people = $directory->lookup(array_column($data['recipients'], 'id'));
+        } catch (QueryException|PDOException|RuntimeException $exception) {
+            report($exception);
+
+            return response()->json(['message' => '本地人员快照暂时不可用，请稍后重试'], 503);
+        }
+
+        try {
+            $notification = DB::transaction(function () use ($client, $data, $channels, $people) {
                 $notification = NotificationRequest::create([
                     'client_system_id' => $client->id, 'request_id' => $data['request_id'],
                     'title' => $data['title'], 'content' => $data['content'],
                     'channels' => $channels, 'portal' => $data['portal'] ?? null,
+                    'status' => 'queued',
                 ]);
                 foreach ($data['recipients'] as $recipient) {
                     foreach ($channels as $channel) {
-                        $address = $recipient[['email' => 'email', 'sms' => 'mobile', 'portal' => 'portal_account', 'portal_message' => 'portal_account'][$channel]];
+                        [$address, $error] = $this->deliveryAddress($recipient, $channel, $people);
                         $notification->deliveries()->create([
                             'client_system_id' => $client->id, 'recipient_id' => $recipient['id'],
-                            'channel' => $channel, 'address' => $address,
+                            'channel' => $channel, 'address' => $address ?? '',
+                            'status' => $error === null ? 'queued' : 'failed',
+                            'last_error' => $error,
                             'business_task_id' => $channel === 'portal' ? $recipient['business_task_id'] : null,
-                            'portal_task_id' => $channel === 'portal' ? (string) Str::uuid() : null,
+                            'portal_task_id' => $channel === 'portal' && $error === null ? (string) Str::uuid() : null,
                             'metadata' => $channel === 'portal' ? ['previous_business_task_id' => $recipient['previous_business_task_id'] ?? null] : null,
                         ]);
                     }
+                }
+
+                $failed = $notification->deliveries()->where('status', 'failed')->count();
+                $queued = $notification->deliveries()->where('status', 'queued')->count();
+                if ($failed > 0) {
+                    $notification->update(['status' => $queued > 0 ? 'processing' : 'failed']);
                 }
 
                 foreach ($channels as $channel) {
@@ -111,7 +126,7 @@ class NotificationController extends Controller
                         'portal_message' => 1,
                         default => 10,
                     };
-                    $notification->deliveries()->where('channel', $channel)->pluck('id')
+                    $notification->deliveries()->where('channel', $channel)->where('status', 'queued')->pluck('id')
                         ->chunk($size)->each(fn ($ids) => SendNotification::dispatch($notification->id, $channel, $ids->all())->afterCommit());
                 }
 
@@ -128,6 +143,46 @@ class NotificationController extends Controller
         }
 
         return response()->json($this->resource($notification), 202);
+    }
+
+    /**
+     * @param  array<string, mixed>  $recipient
+     * @param  array<string, array{email: ?string, mobile: ?string}|null>  $people
+     * @return array{?string, ?string}
+     */
+    private function deliveryAddress(array $recipient, string $channel, array $people): array
+    {
+        $id = $recipient['id'];
+        if (! array_key_exists($id, $people)) {
+            return [null, '学工号未在人员信息库中找到'];
+        }
+        if ($people[$id] === null) {
+            return [null, '学工号对应多条人员记录'];
+        }
+
+        $field = match ($channel) {
+            'email' => 'email',
+            'sms' => 'mobile',
+            default => 'portal_account',
+        };
+        $source = match ($channel) {
+            'email' => $people[$id]['email'],
+            'sms' => $people[$id]['mobile'],
+            default => $id,
+        };
+        $override = $recipient[$field] ?? null;
+        $address = trim((string) (filled($override) ? $override : $source));
+        if ($address === '') {
+            return [null, $channel === 'email' ? '人员信息库未填写电子邮箱' : '人员信息库未填写移动电话'];
+        }
+        if ($channel === 'email' && (strlen($address) > 255 || filter_var($address, FILTER_VALIDATE_EMAIL) === false)) {
+            return [null, '电子邮箱格式无效'];
+        }
+        if ($channel === 'sms' && preg_match('/^1[3-9][0-9]{9}$/D', $address) !== 1) {
+            return [null, '移动电话格式无效'];
+        }
+
+        return [$address, null];
     }
 
     public function show(Request $request, string $notification): JsonResponse

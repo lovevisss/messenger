@@ -64,6 +64,19 @@ return [
             ]) : [],
         ],
 
+        'personnel' => [
+            'driver' => 'mysql',
+            'host' => env('PERSONNEL_DB_HOST', env('DB_HOST', '127.0.0.1')),
+            'port' => env('PERSONNEL_DB_PORT', env('DB_PORT', '3306')),
+            'database' => env('PERSONNEL_DB_DATABASE', 'middata'),
+            'username' => env('PERSONNEL_DB_USERNAME', env('DB_USERNAME', 'root')),
+            'password' => env('PERSONNEL_DB_PASSWORD', env('DB_PASSWORD', '')),
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+            'prefix' => '',
+            'strict' => true,
+        ],
+
         'mariadb' => [
             'driver' => 'mariadb',
             'url' => env('DB_URL'),

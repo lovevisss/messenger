@@ -9,6 +9,7 @@ use App\Models\NotificationDelivery;
 use App\Models\NotificationRequest;
 use App\Models\User;
 use App\Services\Channels\SmsDriver;
+use App\Services\PersonnelDirectory;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
@@ -17,6 +18,24 @@ use Tests\TestCase;
 
 class NotificationPlatformTest extends TestCase
 {
+    /** @var array<string, array{email: ?string, mobile: ?string}|null> */
+    private array $directoryPeople = [];
+
+    /** @var array<int, string> */
+    private array $missingDirectoryIds = [];
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $directory = $this->mock(PersonnelDirectory::class);
+        $directory->shouldReceive('lookup')->andReturnUsing(function (array $ids): array {
+            return collect($ids)->reject(fn (string $id) => in_array($id, $this->missingDirectoryIds, true))->mapWithKeys(fn (string $id) => [
+                $id => $this->directoryPeople[$id] ?? ['email' => null, 'mobile' => null],
+            ])->all();
+        });
+    }
+
     private function client(): string
     {
         $key = 'test-client-secret';
@@ -204,6 +223,130 @@ class NotificationPlatformTest extends TestCase
         $this->assertSame(2, NotificationDelivery::where('status', 'accepted')->count());
     }
 
+    public function test_student_number_resolves_addresses_and_missing_channel_does_not_block_others(): void
+    {
+        Queue::fake();
+        $key = $this->client();
+        $this->directoryPeople['20230001'] = ['email' => 'teacher@example.edu.cn', 'mobile' => null];
+
+        $response = $this->withToken($key)->postJson('/api/v1/notifications', [
+            'request_id' => 'lookup-1', 'channels' => ['email', 'sms', 'portal_message'],
+            'title' => '提醒', 'content' => '内容', 'recipients' => [['id' => '20230001']],
+        ])->assertAccepted()->assertJsonPath('status', 'processing');
+
+        $this->assertSame('teacher@example.edu.cn', NotificationDelivery::where('channel', 'email')->firstOrFail()->address);
+        $this->assertSame('20230001', NotificationDelivery::where('channel', 'portal_message')->firstOrFail()->address);
+        $sms = NotificationDelivery::where('channel', 'sms')->firstOrFail();
+        $this->assertSame('failed', $sms->status);
+        $this->assertSame('人员信息库未填写移动电话', $sms->last_error);
+        $this->assertSame('', $sms->address);
+        $this->assertSame(0, $sms->attempts);
+        Queue::assertPushed(SendNotification::class, 2);
+        $this->withToken($key)->getJson('/api/v1/notifications/'.$response->json('id'))
+            ->assertJsonPath('status', 'processing');
+    }
+
+    public function test_student_number_alone_queues_all_four_channels_when_contacts_exist(): void
+    {
+        Queue::fake();
+        $key = $this->client();
+        $this->directoryPeople['20230001'] = ['email' => 'teacher@example.edu.cn', 'mobile' => '13800138000'];
+
+        $this->withToken($key)->postJson('/api/v1/notifications', [
+            'request_id' => 'all-channels', 'channels' => ['email', 'sms', 'portal_message', 'portal'],
+            'title' => '提醒', 'content' => '内容',
+            'portal' => ['node_id' => 'node', 'node_name' => '审核', 'trans_type_code' => 'type', 'trans_type_name' => '事项'],
+            'recipients' => [['id' => '20230001', 'business_task_id' => 'all-channel-task']],
+        ])->assertAccepted()->assertJsonPath('status', 'queued');
+
+        $this->assertSame('teacher@example.edu.cn', NotificationDelivery::where('channel', 'email')->firstOrFail()->address);
+        $this->assertSame('13800138000', NotificationDelivery::where('channel', 'sms')->firstOrFail()->address);
+        $this->assertSame('20230001', NotificationDelivery::where('channel', 'portal_message')->firstOrFail()->address);
+        $this->assertSame('20230001', NotificationDelivery::where('channel', 'portal')->firstOrFail()->address);
+        Queue::assertPushed(SendNotification::class, 4);
+    }
+
+    public function test_optional_addresses_override_source_values_and_are_snapshotted(): void
+    {
+        Queue::fake();
+        $key = $this->client();
+        $this->directoryPeople['20230001'] = ['email' => 'source@example.edu.cn', 'mobile' => '13800138000'];
+        $body = [
+            'request_id' => 'lookup-override', 'channels' => ['email', 'sms', 'portal'],
+            'title' => '提醒', 'content' => '内容',
+            'portal' => ['node_id' => 'node', 'node_name' => '审核', 'trans_type_code' => 'type', 'trans_type_name' => '事项'],
+            'recipients' => [[
+                'id' => '20230001', 'email' => 'override@example.edu.cn',
+                'mobile' => '13900139000', 'portal_account' => 'alternate-account',
+                'business_task_id' => 'override-task',
+            ]],
+        ];
+
+        $id = $this->withToken($key)->postJson('/api/v1/notifications', $body)->assertAccepted()->json('id');
+        $this->assertSame('override@example.edu.cn', NotificationDelivery::where('channel', 'email')->firstOrFail()->address);
+        $this->assertSame('13900139000', NotificationDelivery::where('channel', 'sms')->firstOrFail()->address);
+        $this->assertSame('alternate-account', NotificationDelivery::where('channel', 'portal')->firstOrFail()->address);
+        $this->directoryPeople['20230001'] = ['email' => 'changed@example.edu.cn', 'mobile' => '13700137000'];
+        $this->withToken($key)->postJson('/api/v1/notifications', $body)->assertOk()->assertJsonPath('id', $id);
+        $this->assertSame('override@example.edu.cn', NotificationDelivery::where('channel', 'email')->firstOrFail()->address);
+    }
+
+    public function test_unknown_person_and_invalid_addresses_are_recorded_without_dispatch(): void
+    {
+        Queue::fake();
+        $key = $this->client();
+        $this->missingDirectoryIds = ['unknown'];
+        $this->directoryPeople['bad-source'] = ['email' => 'invalid-email', 'mobile' => '123'];
+
+        $this->withToken($key)->postJson('/api/v1/notifications', [
+            'request_id' => 'invalid-people', 'channels' => ['email', 'sms', 'portal_message'],
+            'title' => '提醒', 'content' => '内容',
+            'recipients' => [
+                ['id' => 'unknown', 'email' => 'override@example.edu.cn', 'mobile' => '13800138000'],
+                ['id' => 'bad-source'],
+            ],
+        ])->assertAccepted()->assertJsonPath('status', 'processing');
+
+        $this->assertSame(3, NotificationDelivery::where('recipient_id', 'unknown')->where('status', 'failed')->count());
+        $this->assertSame('学工号未在人员信息库中找到', NotificationDelivery::where('recipient_id', 'unknown')->firstOrFail()->last_error);
+        $this->assertSame('电子邮箱格式无效', NotificationDelivery::where('recipient_id', 'bad-source')->where('channel', 'email')->firstOrFail()->last_error);
+        $this->assertSame('移动电话格式无效', NotificationDelivery::where('recipient_id', 'bad-source')->where('channel', 'sms')->firstOrFail()->last_error);
+        Queue::assertPushed(SendNotification::class, 1);
+    }
+
+    public function test_invalid_optional_override_fails_only_its_channel(): void
+    {
+        Queue::fake();
+        $key = $this->client();
+        $this->directoryPeople['20230001'] = ['email' => 'source@example.edu.cn', 'mobile' => '13800138000'];
+
+        $this->withToken($key)->postJson('/api/v1/notifications', [
+            'request_id' => 'invalid-override', 'channels' => ['email', 'sms'],
+            'title' => '提醒', 'content' => '内容',
+            'recipients' => [['id' => '20230001', 'email' => 'invalid-email']],
+        ])->assertAccepted()->assertJsonPath('status', 'processing');
+
+        $this->assertSame('电子邮箱格式无效', NotificationDelivery::where('channel', 'email')->firstOrFail()->last_error);
+        $this->assertSame('13800138000', NotificationDelivery::where('channel', 'sms')->firstOrFail()->address);
+        Queue::assertPushed(SendNotification::class, 1);
+    }
+
+    public function test_missing_local_snapshot_does_not_create_a_task(): void
+    {
+        Queue::fake();
+        $key = $this->client();
+        $directory = \Mockery::mock(PersonnelDirectory::class);
+        $directory->shouldReceive('lookup')->once()->andThrow(new \RuntimeException('人员信息尚未完成首次同步'));
+        $this->app->instance(PersonnelDirectory::class, $directory);
+
+        $this->withToken($key)->postJson('/api/v1/notifications', [
+            'request_id' => 'directory-down', 'channels' => ['email'],
+            'title' => '提醒', 'content' => '内容', 'recipients' => [['id' => '20230001']],
+        ])->assertStatus(503);
+        $this->assertSame(0, NotificationRequest::count());
+        Queue::assertNotPushed(SendNotification::class);
+    }
+
     public function test_client_isolation_and_validation(): void
     {
         Queue::fake();
@@ -211,7 +354,11 @@ class NotificationPlatformTest extends TestCase
         $body = ['request_id' => 'x', 'channels' => ['email'], 'title' => '提醒', 'content' => '内容',
             'recipients' => [['id' => 'a', 'email' => 'a@example.com']]];
         $this->postJson('/api/v1/notifications', $body)->assertUnauthorized();
-        $this->withToken($key)->postJson('/api/v1/notifications', array_replace($body, ['recipients' => [['id' => 'a']]]))->assertUnprocessable();
+        $this->withToken($key)->postJson('/api/v1/notifications', array_replace($body, [
+            'request_id' => 'missing-address', 'recipients' => [['id' => 'a']],
+        ]))
+            ->assertAccepted()->assertJsonPath('status', 'failed')
+            ->assertJsonPath('deliveries.0.error', '人员信息库未填写电子邮箱');
         $id = $this->withToken($key)->postJson('/api/v1/notifications', $body)->assertAccepted()->json('id');
         ClientSystem::create(['name' => '其他系统', 'key_hash' => hash('sha256', 'another-key')]);
         $this->withToken('another-key')->getJson('/api/v1/notifications/'.$id)->assertNotFound();

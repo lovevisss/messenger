@@ -4,8 +4,8 @@ Laravel 13 + Vue 的统一消息接口。当前渠道为邮件、MAS 短信、�
 
 ## 启动
 
-1. 复制 `.env.example` 为 `.env`，生成 `APP_KEY`，配置数据库和渠道变量。邮件默认使用 `smtp.exmail.qq.com:465` 的 SSL 连接；把实际邮箱客户端密码写入部署环境的 `MAIL_PASSWORD`，不要写入版本库。
-2. 运行 `php artisan migrate`、`npm run build`，启动 Laravel 服务和持续运行的 `php artisan queue:work --tries=3`。没有队列 worker 时，API 仍会接受请求，但任务不会发送。
+1. 复制 `.env.example` 为 `.env`，生成 `APP_KEY`，配置数据库和渠道变量。人员同步默认从主库同机、同账号的 `middata.t_cx_zzqxryxx` 只读查询；如连接不同，设置 `PERSONNEL_DB_HOST`、`PERSONNEL_DB_PORT`、`PERSONNEL_DB_DATABASE`、`PERSONNEL_DB_USERNAME`、`PERSONNEL_DB_PASSWORD`。邮件默认使用 `smtp.exmail.qq.com:465` 的 SSL 连接；把实际邮箱客户端密码写入部署环境的 `MAIL_PASSWORD`，不要写入版本库。
+2. 运行 `php artisan migrate`、`php artisan personnel:sync` 完成首次人员同步，再运行 `npm run build`。持续运行 Laravel 服务、`php artisan queue:work --tries=3` 和 Laravel 调度器。调度器每天北京时间 02:00 执行人员同步；可用每分钟运行一次 `php artisan schedule:run` 的系统计划任务，或持续运行 `php artisan schedule:work`。同步失败会保留上次完整快照；首次同步前发送接口返回 `503`。没有队列 worker 时，API 仍会接受请求，但任务不会发送。
 3. 注册后台用户后运行 `php artisan notifications:grant-admin 用户邮箱`。管理员登录后可在 Dashboard 选择邮件、短信或信息门户入口，进入 `/notifications` 管理接入系统并保存只显示一次的 API 密钥。后台账号不要求邮箱验证。
 4. 可运行 `php artisan notifications:test-email 收件邮箱` 测试 SMTP 提交。命令成功仅表示邮件服务器接受，最终到达需检查收件箱。
 
@@ -17,7 +17,7 @@ Laravel 13 + Vue 的统一消息接口。当前渠道为邮件、MAS 短信、�
 
 所有接口使用 `Authorization: Bearer <接入系统密钥>`，按接入系统限制为每分钟 120 次。POST 提交成功返回 `202` 和任务号；相同系统的相同 `request_id` 返回原任务与 `200`，不重复发送。接口使用 JSON，请求失败返回 Laravel 标准 JSON 错误。
 
-新接入系统的 `request_id` 统一使用 `系统代码:业务场景:业务唯一单号`，例如 `jwc:leave:202610080001`。同一次提醒重试必须复用该编号。`recipients[].id` 填收件人学工号（字符串，保留前导零），响应中的 `recipient_id` 原样返回学工号。为兼容已有调用，当前 API 对请求号仍只强制校验非空、最长 120 字符及同一系统内唯一；命名格式由接入文档约定。
+新接入系统的 `request_id` 统一使用 `系统代码:业务场景:业务唯一单号`，例如 `jwc:leave:202610080001`。同一次提醒重试必须复用该编号。`recipients[].id` 填收件人学工号（字符串，保留前导零），响应中的 `recipient_id` 原样返回学工号。平台按学工号从本地每日同步的人员快照查询电子邮箱和移动电话，门户账号默认使用学工号；`email`、`mobile`、`portal_account` 可选，填写后覆盖该渠道的默认地址，但学工号仍须存在于本地人员快照。为兼容已有调用，当前 API 对请求号仍只强制校验非空、最长 120 字符及同一系统内唯一；命名格式由接入文档约定。
 
 ### 发送邮件
 
@@ -30,19 +30,19 @@ Laravel 13 + Vue 的统一消息接口。当前渠道为邮件、MAS 短信、�
     "title": "请处理请假申请",
     "content": "您有一条新的请假申请。",
     "recipients": [
-        { "id": "20230001", "email": "teacher1@example.edu.cn" },
-        { "id": "20230002", "email": "teacher2@example.edu.cn" }
+        { "id": "20230001" },
+        { "id": "20230002" }
     ]
 }
 ```
 
-选择 `sms` 时，收件人提供 `mobile`；一次请求的短信正文相同，MAS 单批最多 5000 个号码，平台自动拆批。单次请求最多 10000 名收件人。邮件按小批队列处理，门户消息和待办每位收件人独立处理。选择多个渠道时，每位收件人需提供对应的地址。
+选择 `sms` 时，平台使用本地快照中的 `yddh`；邮件使用 `dzyx`。一次请求的短信正文相同，MAS 单批最多 5000 个号码，平台自动拆批。单次请求最多 10000 名收件人。邮件按小批队列处理，门户消息和待办每位收件人独立处理。学工号未收录、所选渠道缺少地址或地址格式无效时，该渠道记为 `failed`，其他可用渠道继续发送；本地快照尚未完成首次同步或无法查询时返回 `503`，不创建任务。
 
 短信 `content` 由业务系统提供，平台原样转发；业务系统应使用云 MAS 已审批的短信签名和模板内容。
 
 ### 发送门户站内消息
 
-`channels` 选择 `portal_message`，收件人的 `portal_account` 填学工号。平台固定发送方式为 `WEBSITE`，把 `content` 映射到消息类型模板的 `content` 参数。消息类型需在门户消息中台配置好相应模板。
+`channels` 选择 `portal_message`，门户账号默认使用收件人学工号。平台固定发送方式为 `WEBSITE`，把 `content` 映射到消息类型模板的 `content` 参数。消息类型需在门户消息中台配置好相应模板。
 
 ```json
 {
@@ -50,7 +50,7 @@ Laravel 13 + Vue 的统一消息接口。当前渠道为邮件、MAS 短信、�
     "channels": ["portal_message"],
     "title": "请查看通知",
     "content": "您有一条新的业务消息。",
-    "recipients": [{ "id": "20150301", "portal_account": "20150301" }]
+    "recipients": [{ "id": "20150301" }]
 }
 ```
 
@@ -72,9 +72,7 @@ Laravel 13 + Vue 的统一消息接口。当前渠道为邮件、MAS 短信、�
     },
     "recipients": [
         {
-            "id": "teacher-1",
-            "email": "teacher1@example.edu.cn",
-            "portal_account": "teacher001",
+            "id": "20230001",
             "business_task_id": "leave-001-review-1"
         }
     ]

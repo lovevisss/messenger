@@ -21,8 +21,8 @@ const requestBody = `{
   "title": "请处理请假申请",
   "content": "您有一条新的请假申请，请登录业务系统处理。",
   "recipients": [
-    { "id": "20230001", "email": "teacher1@example.edu.cn" },
-    { "id": "20230002", "email": "teacher2@example.edu.cn" }
+    { "id": "20230001" },
+    { "id": "20230002" }
   ]
 }`;
 
@@ -64,9 +64,9 @@ const acceptedResponse = `{
 }`;
 
 const validationResponse = `{
-  "message": "所选渠道要求提供此收件地址",
+  "message": "The recipients.0.id field is required.",
   "errors": {
-    "recipients.0.email": ["所选渠道要求提供此收件地址"]
+    "recipients.0.id": ["The recipients.0.id field is required."]
   }
 }`;
 
@@ -331,7 +331,7 @@ async function copy(value: string, key: string) {
                             }}</code>
                         </div>
                         <p class="mt-3 text-xs text-[#7b887d]">
-                            将示例密钥和邮箱替换为实际值。
+                            将示例密钥和学工号替换为实际值。
                         </p>
                     </details>
                     <details
@@ -457,10 +457,10 @@ async function copy(value: string, key: string) {
                                         recipients[].email
                                     </td>
                                     <td class="px-4 py-3">
-                                        必填 · 有效邮箱地址
+                                        可选 · 有效邮箱地址
                                     </td>
                                     <td class="px-4 py-3">
-                                        接收邮件的地址，最多 255 字符。
+                                        填写后覆盖本地每日同步快照中的 dzyx，最多 255 字符；不填则按学工号查询。
                                     </td>
                                 </tr>
                             </tbody>
@@ -496,6 +496,12 @@ async function copy(value: string, key: string) {
                             固定填写收件人学工号；查询结果中的
                             <code>recipient_id</code>
                             会原样返回这个学工号，方便业务系统对应投递结果。
+                        </p>
+                        <p class="mt-2 leading-7">
+                            平台按学工号查询本地每日同步的电子邮箱。可选的
+                            <code>recipients[].email</code> 会覆盖该邮箱；学工号仍须存在于本地快照。
+                            未收录、缺少邮箱或邮箱格式无效时，该邮件投递记为
+                            <code>failed</code>，原因见 <code>error</code>。
                         </p>
                     </div>
                     <p class="mt-4 text-sm leading-6 text-[#718074]">
@@ -639,6 +645,10 @@ async function copy(value: string, key: string) {
                                     <td class="px-4 py-3">
                                         同一接入系统超过每分钟 120 次请求
                                     </td>
+                                </tr>
+                                <tr>
+                                    <td class="px-4 py-3 font-mono font-semibold">503</td>
+                                    <td class="px-4 py-3">本地人员快照尚未同步或无法查询，任务未创建</td>
                                 </tr>
                             </tbody>
                         </table>

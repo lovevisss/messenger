@@ -14,7 +14,7 @@ const messageBody = JSON.stringify(
         channels: ["portal_message"],
         title: "请查看通知",
         content: "您有一条新的业务消息。",
-        recipients: [{ id: "20230001", portal_account: "20230001" }],
+        recipients: [{ id: "20230001" }],
     },
     null,
     2,
@@ -35,7 +35,7 @@ const taskBody = JSON.stringify(
             view_url: "https://business.example.edu.cn/tasks/1",
         },
         recipients: [
-            { id: "20230001", portal_account: "20230001", business_task_id: "approval-1-review" },
+            { id: "20230001", business_task_id: "approval-1-review" },
         ],
     },
     null,
@@ -105,7 +105,7 @@ const fields = [
     ],
     ["recipients", "必填，1–10000 人", "每位收件人独立投递；一次请求中的 id 不得重复。"],
     ["recipients[].id", "必填，最多 120 字符", "收件人学工号，以字符串传入并保留前导零。"],
-    ["recipients[].portal_account", "门户渠道必填", "门户账号，通常是收件人学工号。"],
+    ["recipients[].portal_account", "可选", "默认使用学工号；填写后覆盖门户账号。学工号仍须存在于本地每日同步快照。"],
 ];
 const taskFields = [
     [
@@ -366,6 +366,7 @@ async function copy(value: string, key: string) {
                     <code>sendId</code>，失败原因在 <code>error</code>；请求整体可为
                     <code>processing</code>、<code>accepted</code>、<code>partial</code> 或
                     <code>failed</code>。
+                    学工号未收录时，对应门户投递直接记为 <code>failed</code>，不会调用 POA。
                 </p>
             </section>
 
@@ -407,7 +408,7 @@ async function copy(value: string, key: string) {
                     <p>
                         <code>422</code>：字段缺失、格式不符或业务任务号重复，响应
                         <code>errors</code> 指出字段位置。<br /><code>429</code>：超过每分钟 120
-                        次的限流。
+                        次的限流。<br /><code>503</code>：本地人员快照尚未同步或无法查询，任务未创建。
                     </p>
                 </div>
                 <p class="mt-4 text-sm leading-7 text-[#4b6255]">

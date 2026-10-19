@@ -14,8 +14,8 @@ const requestBody = `{
   "title": "业务提醒",
   "content": "【已审批短信签名】您有一项业务待处理，请登录业务系统查看。",
   "recipients": [
-    { "id": "20230001", "mobile": "13800138000" },
-    { "id": "20230002", "mobile": "13800138001" }
+    { "id": "20230001" },
+    { "id": "20230002" }
   ]
 }`;
 
@@ -72,9 +72,9 @@ const fields = [
     },
     {
         name: 'recipients[].mobile',
-        requirement: '必填',
+        requirement: '可选',
         description:
-            '中国大陆手机号码，格式为 1 开头的 11 位号码，第二位为 3–9。',
+            '填写后覆盖本地每日同步快照中的 yddh；不填则按学工号查询。中国大陆手机号码须为 1 开头的 11 位号码，第二位为 3–9。',
     },
 ];
 
@@ -272,6 +272,12 @@ async function copy(value: string, key: string) {
                         <code>recipients[].id</code> 填学工号；响应中的
                         <code>recipient_id</code> 原样返回，便于对应投递结果。
                     </p>
+                    <p class="mt-2">
+                        平台按学工号查询本地每日同步的移动电话。可选的
+                        <code>recipients[].mobile</code> 会覆盖该号码；学工号仍须在本地快照中。
+                        未收录、缺少号码或号码格式无效时，该短信投递记为
+                        <code>failed</code>，原因见 <code>error</code>。
+                    </p>
                 </div>
             </section>
 
@@ -328,6 +334,7 @@ async function copy(value: string, key: string) {
                             '422：参数无效，查看 errors 字段',
                             '404：任务不存在或不属于当前系统',
                             '429：同一系统超过每分钟 120 次请求',
+                            '503：本地人员快照尚未同步或无法查询，任务未创建',
                         ]"
                         :key="item"
                         class="rounded-lg border border-[#dbe3dc] bg-white p-4 text-sm"
