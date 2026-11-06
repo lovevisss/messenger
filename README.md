@@ -68,7 +68,10 @@ Laravel 13 + Vue 的统一消息接口。当前渠道为邮件、MAS 短信、�
         "trans_type_code": "leave",
         "trans_type_name": "请假申请",
         "initiator": "student001",
-        "handle_url": "https://business.example.edu.cn/leave/001"
+        "handle_url": "https://business.example.edu.cn/leave/001",
+        "view_url": "https://business.example.edu.cn/leave/001",
+        "mobile_handle_url": "https://m.business.example.edu.cn/leave/001",
+        "mobile_view_url": "https://m.business.example.edu.cn/leave/001"
     },
     "recipients": [
         {
@@ -80,6 +83,8 @@ Laravel 13 + Vue 的统一消息接口。当前渠道为邮件、MAS 短信、�
 ```
 
 每位门户收件人有独立的 `business_task_id`，在同一接入系统下全局唯一。后续节点由业务系统再次调用发送接口创建，新任务的收件人增加 `previous_business_task_id`，平台会映射到上一门户任务。业务系统负责决定流程和处理人。
+
+待办可分别提供 PC 端 `handle_url`、`view_url` 和手机端 `mobile_handle_url`、`mobile_view_url`。四个地址均为可选项；手机端地址需由业务系统单独填写，平台不会自动复用 PC 地址。
 
 门户真实联调前，请确认服务器能访问 `PORTAL_BASE_URL`，队列 worker 正在运行，`APP_URL` 是测试人能打开的实际地址。用 `/docs/portal` 的两个示例分别向 `20150301` 提交消息和待办；每次测试更换 `request_id`，待办还需更换 `business_task_id`。待办测试可把 `portal.handle_url` 和 `portal.view_url` 设为实际服务的 `/dashboard`。通过查询接口确认逐渠道 `accepted`，并在门户账号中检查显示结果。测试待办不会自动撤销。
 

@@ -149,7 +149,7 @@ class ApiDocumentation
                 ],
                 [
                     'title' => '门户待办',
-                    'description' => 'channels 选择 portal；每位收件人需独立 business_task_id。',
+                    'description' => 'channels 选择 portal；每位收件人需独立 business_task_id。PC 与手机端办理、查看地址可分别填写。',
                     'payload' => [
                         'request_id' => 'jwc:approval:202610090001', 'channels' => ['portal'],
                         'title' => '请处理待办', 'content' => '您有一项业务等待处理。',
@@ -159,6 +159,8 @@ class ApiDocumentation
                             'initiator' => 'student001',
                             'handle_url' => 'https://business.example.edu.cn/tasks/1',
                             'view_url' => 'https://business.example.edu.cn/tasks/1',
+                            'mobile_handle_url' => 'https://m.business.example.edu.cn/tasks/1',
+                            'mobile_view_url' => 'https://m.business.example.edu.cn/tasks/1',
                         ],
                         'recipients' => [['id' => '20230001', 'business_task_id' => 'approval-1-review']],
                     ],
@@ -179,8 +181,8 @@ class ApiDocumentation
                 ['portal.node_id / node_name', '待办必填', '节点标识及名称。'],
                 ['portal.trans_type_code / trans_type_name', '待办必填', '事务类型编码及名称。'],
                 ['portal.initiator', '可选', '发起人学工号。'],
-                ['portal.handle_url / view_url', '可选', 'PC 端办理与查看地址。'],
-                ['portal.mobile_handle_url / mobile_view_url', '可选', '移动端办理与查看地址。'],
+                ['portal.handle_url / view_url', '可选', 'PC 端办理与查看地址，分别映射为 POA handleUrl、viewUrl。'],
+                ['portal.mobile_handle_url / mobile_view_url', '可选', '手机端办理与查看地址，分别映射为 POA mHandleUrl、mViewUrl；需单独填写，不自动复用 PC 地址。'],
                 ['portal.summary', '可选', '字符串数组，单项最多 255 字符，格式为“字段名|字段值”。'],
             ],
             'response' => self::response('jwc:notice:202610090001', 'portal_message'),

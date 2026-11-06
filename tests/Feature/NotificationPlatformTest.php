@@ -441,7 +441,14 @@ class NotificationPlatformTest extends TestCase
         Http::fake(['portal.example.test/*' => Http::response(['code' => 0, 'data' => ['errorIds' => []]])]);
         $id = $this->withToken($key)->postJson('/api/v1/notifications', [
             'request_id' => 'portal-1', 'channels' => ['portal'], 'title' => '审核事项', 'content' => '请办理',
-            'portal' => ['node_id' => 'node-1', 'node_name' => '审核', 'trans_type_code' => 'type-1', 'trans_type_name' => '提醒'],
+            'portal' => [
+                'node_id' => 'node-1', 'node_name' => '审核',
+                'trans_type_code' => 'type-1', 'trans_type_name' => '提醒',
+                'handle_url' => 'https://business.example.test/tasks/1',
+                'view_url' => 'https://business.example.test/tasks/1',
+                'mobile_handle_url' => 'https://m.business.example.test/tasks/1',
+                'mobile_view_url' => 'https://m.business.example.test/tasks/1',
+            ],
             'recipients' => [['id' => 'a', 'portal_account' => 'teacher001', 'business_task_id' => 'business-1']],
         ])->assertAccepted()->json('id');
         app()->call([new SendNotification($id), 'handle']);
@@ -454,6 +461,10 @@ class NotificationPlatformTest extends TestCase
             return str_ends_with($request->url(), '/addTransaction')
                 && $body[0]['taskId'] === $delivery->portal_task_id
                 && $body[0]['handlers'] === 'teacher001'
+                && $body[0]['handleUrl'] === 'https://business.example.test/tasks/1'
+                && $body[0]['viewUrl'] === 'https://business.example.test/tasks/1'
+                && $body[0]['mHandleUrl'] === 'https://m.business.example.test/tasks/1'
+                && $body[0]['mViewUrl'] === 'https://m.business.example.test/tasks/1'
                 && $request->hasHeader('Authorization', 'test-token');
         });
 
@@ -493,6 +504,15 @@ class NotificationPlatformTest extends TestCase
         ])->assertAccepted()->json('id');
         app()->call([new SendNotification($id), 'handle']);
         $delivery = NotificationDelivery::firstOrFail();
+
+        Http::assertSent(function ($request) {
+            if (! str_ends_with($request->url(), '/addTransaction')) {
+                return false;
+            }
+            $body = json_decode($request->body(), true);
+
+            return $body[0]['mHandleUrl'] === null && $body[0]['mViewUrl'] === null;
+        });
 
         $this->withToken($key)->postJson('/api/v1/portal-tasks/business-2/withdraw', ['creator' => 'student001'])->assertAccepted();
         $this->withToken($key)->postJson('/api/v1/portal-tasks/business-2/withdraw', ['creator' => 'student001'])->assertAccepted();

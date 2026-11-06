@@ -39,6 +39,11 @@ class DocsDownloadTest extends TestCase
             foreach ($doc['operations'] ?? [] as $operation) {
                 $this->assertStringContainsString($operation[1], $html);
             }
+            if ($channel === 'portal') {
+                $this->assertStringContainsString('mobile_handle_url', $html);
+                $this->assertStringContainsString('mobile_view_url', $html);
+                $this->assertStringContainsString('m.business.example.edu.cn', $html);
+            }
         }
     }
 
