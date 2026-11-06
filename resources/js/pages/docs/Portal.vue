@@ -3,128 +3,22 @@ import { Head, Link } from "@inertiajs/vue3";
 import { Check, Clipboard } from "@lucide/vue";
 import { computed, ref } from "vue";
 import { copyText } from "@/lib/copyText";
+import type { ApiDocumentation } from "@/types/api-documentation";
 
-const props = defineProps<{ apiUrl: string }>();
+const props = defineProps<{ apiUrl: string; doc: ApiDocumentation }>();
 const copied = ref<string | null>(null);
-const messageTemplate = "{{content}}收到了一条消息";
-
-const messageBody = JSON.stringify(
-    {
-        request_id: "jwc:notice:202610090001",
-        channels: ["portal_message"],
-        title: "请查看通知",
-        content: "您有一条新的业务消息。",
-        recipients: [{ id: "20230001" }],
-    },
-    null,
-    2,
-);
-const taskBody = JSON.stringify(
-    {
-        request_id: "jwc:approval:202610090001",
-        channels: ["portal"],
-        title: "请处理待办",
-        content: "您有一项业务等待处理。",
-        portal: {
-            node_id: "review",
-            node_name: "审核",
-            trans_type_code: "approval",
-            trans_type_name: "业务审批",
-            initiator: "student001",
-            handle_url: "https://business.example.edu.cn/tasks/1",
-            view_url: "https://business.example.edu.cn/tasks/1",
-        },
-        recipients: [
-            { id: "20230001", business_task_id: "approval-1-review" },
-        ],
-    },
-    null,
-    2,
-);
-const responseBody = JSON.stringify(
-    {
-        id: "7a646e3c-1c2a-4af3-9553-e8c241237530",
-        request_id: "jwc:notice:202610090001",
-        status: "queued",
-        created_at: "2026-10-09T09:30:00.000000Z",
-        deliveries: [
-            {
-                recipient_id: "20230001",
-                channel: "portal_message",
-                status: "queued",
-                provider_ref: null,
-                business_task_id: null,
-                attempts: 0,
-                error: null,
-            },
-        ],
-    },
-    null,
-    2,
-);
-
-const queryUrl = computed(() => `${props.apiUrl}/{任务号}`);
+const messageTemplate = computed(() => props.doc.messageTemplate);
+const responseBody = computed(() => props.doc.response);
+const queryUrl = computed(() => props.doc.queryUrl);
 const taskUrl = computed(() =>
     props.apiUrl.replace(/\/notifications$/, "/portal-tasks/{业务任务号}"),
 );
-const examples = computed(() =>
-    [
-        {
-            key: "message",
-            title: "门户站内消息",
-            description:
-                "channels 选择 portal_message。平台向 POA 发送 WEBSITE 消息，将 content 填入模板变量；每位收件人独立投递。",
-            body: messageBody,
-        },
-        {
-            key: "task",
-            title: "门户待办",
-            description:
-                "channels 选择 portal。每位收件人须有唯一的 business_task_id；业务系统负责提供办理链接、节点和处理人。",
-            body: taskBody,
-        },
-    ].map((example) => ({
-        ...example,
-        curl: `curl -X POST "${props.apiUrl}" -H "Authorization: Bearer <接入系统密钥>" -H "Accept: application/json" -H "Content-Type: application/json" --data '${example.body.replace(/\n\s*/g, " ")}'`,
-        powershell: `$body = @'\n${example.body}\n'@\nInvoke-RestMethod -Method Post -Uri "${props.apiUrl}" -Headers @{ Authorization = "Bearer <接入系统密钥>"; Accept = "application/json" } -ContentType "application/json" -Body $body`,
-    })),
-);
-
-const fields = [
-    [
-        "request_id",
-        "必填，最多 120 字符",
-        "同一接入系统内唯一；同一次提醒重试时复用。建议采用 系统:场景:业务单号。",
-    ],
-    ["channels", "必填", '站内消息用 ["portal_message"]，待办用 ["portal"]，也可同时选择。'],
-    ["title", "必填，最多 255 字符", "门户消息标题或待办名称。"],
-    [
-        "content",
-        "必填，最多 10000 字符",
-        "站内消息填入模板变量 content；待办默认用正文前 200 字生成摘要。",
-    ],
-    ["recipients", "必填，1–10000 人", "每位收件人独立投递；一次请求中的 id 不得重复。"],
-    ["recipients[].id", "必填，最多 120 字符", "收件人学工号，以字符串传入并保留前导零。"],
-    ["recipients[].portal_account", "可选", "默认使用学工号；填写后覆盖门户账号。学工号仍须存在于本地每日同步快照。"],
-];
-const taskFields = [
-    [
-        "recipients[].business_task_id",
-        "必填，最多 120 字符",
-        "同一接入系统下全局唯一；后续完成或撤销时用它定位待办。",
-    ],
-    [
-        "recipients[].previous_business_task_id",
-        "后续节点可填",
-        "上一条已成功创建的业务任务号；平台映射为 POA previousTaskId。",
-    ],
-    ["portal.node_id / node_name", "必填", "节点标识及显示名称。"],
-    ["portal.trans_type_code / trans_type_name", "必填", "事务类型编码及名称。"],
-    ["portal.initiator", "可选", "发起人学工号。"],
-    ["portal.handle_url / view_url", "可选", "PC 端办理及查看地址；正式业务应提供可访问地址。"],
-    ["portal.mobile_handle_url / mobile_view_url", "可选", "移动端办理及查看地址。"],
-    ["portal.summary", "可选", "字符串数组，单项最多 255 字符，格式为“字段名|字段值”。"],
-];
+const examples = computed(() => props.doc.examples.map((example, index) => ({
+    ...example,
+    key: index === 0 ? "message" : "task",
+})));
+const fields = computed(() => props.doc.fields);
+const taskFields = computed(() => props.doc.extraFields ?? []);
 
 async function copy(value: string, key: string) {
     copied.value = (await copyText(value)) ? key : null;
@@ -149,9 +43,12 @@ async function copy(value: string, key: string) {
                 </p>
                 <h1 class="mt-3 text-3xl font-semibold md:text-4xl">门户 API 接入文档</h1>
                 <p class="mt-4 text-sm leading-7 text-[#5c7166]">
-                    统一接口支持门户站内消息和待办。业务系统使用本平台签发的接入密钥；POA
-                    凭据由平台服务器管理，调用方无需获取 POA token。
+                    {{ doc.intro }}
                 </p>
+                <div class="mt-6 flex flex-wrap gap-3">
+                    <a href="/docs/portal/download/pdf" class="rounded-lg bg-[#194f3e] px-4 py-2 text-sm font-semibold text-white hover:bg-[#276449]">下载 PDF</a>
+                    <a href="/docs/portal/download/html" class="rounded-lg border border-[#a9c7b2] bg-white px-4 py-2 text-sm font-semibold text-[#205d43] hover:bg-[#edf5ee]">下载离线 HTML</a>
+                </div>
             </header>
 
             <section class="grid gap-4 md:grid-cols-3" aria-label="接口概览">
@@ -189,29 +86,9 @@ async function copy(value: string, key: string) {
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-[#edf1ec]">
-                            <tr>
-                                <td class="py-3 pr-4">站内消息</td>
-                                <td class="py-3 font-mono text-xs">
-                                    POST /apis/messagecenter/v1/poaMessage/messageSend
-                                </td>
-                            </tr>
-                            <tr>
-                                <td class="py-3 pr-4">创建待办</td>
-                                <td class="py-3 font-mono text-xs">
-                                    POST /apis/ttc/v1/transaction/poa/addTransaction
-                                </td>
-                            </tr>
-                            <tr>
-                                <td class="py-3 pr-4">办理待办</td>
-                                <td class="py-3 font-mono text-xs">
-                                    POST /apis/ttc/v1/transaction/poa/taskHandle
-                                </td>
-                            </tr>
-                            <tr>
-                                <td class="py-3 pr-4">撤销待办</td>
-                                <td class="py-3 font-mono text-xs">
-                                    POST /apis/ttc/v1/transaction/poa/taskWithdraw
-                                </td>
+                            <tr v-for="row in doc.upstream" :key="row[0]">
+                                <td class="py-3 pr-4">{{ row[0] }}</td>
+                                <td class="py-3 font-mono text-xs">{{ row[1] }}</td>
                             </tr>
                         </tbody>
                     </table>
@@ -400,15 +277,8 @@ async function copy(value: string, key: string) {
             <section class="rounded-2xl border border-[#dbe3dc] bg-white p-6 md:p-8">
                 <h2 class="text-xl font-semibold">错误处理与联调</h2>
                 <div class="mt-3 grid gap-4 text-sm leading-7 text-[#4b6255] md:grid-cols-2">
-                    <p>
-                        <code>401</code>：接入系统密钥无效。<br /><code>404</code
-                        >：任务不存在或不属于该系统。<br /><code>409</code
-                        >：待办已有冲突的状态操作。
-                    </p>
-                    <p>
-                        <code>422</code>：字段缺失、格式不符或业务任务号重复，响应
-                        <code>errors</code> 指出字段位置。<br /><code>429</code>：超过每分钟 120
-                        次的限流。<br /><code>503</code>：本地人员快照尚未同步或无法查询，任务未创建。
+                    <p v-for="error in doc.errors" :key="error[0]">
+                        <code>{{ error[0] }}</code>：{{ error[1] }}
                     </p>
                 </div>
                 <p class="mt-4 text-sm leading-7 text-[#4b6255]">

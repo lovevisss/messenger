@@ -1,25 +1,35 @@
 <?php
 
 use App\Http\Controllers\Admin\NotificationConsoleController;
+use App\Http\Controllers\DocsDownloadController;
 use App\Http\Middleware\EnsureNotificationAdmin;
 use App\Models\NotificationDelivery;
+use App\Support\ApiDocumentation;
 use Illuminate\Http\Request;
-use Inertia\Inertia;
 use Illuminate\Support\Facades\Route;
+use Inertia\Inertia;
 
 Route::inertia('/', 'Welcome')->name('home');
 
 Route::get('docs/email', fn () => Inertia::render('docs/Email', [
-    'apiUrl' => url('/api/v1/notifications'),
+    'apiUrl' => request()->root().'/api/v1/notifications',
+    'doc' => ApiDocumentation::for('email', request()->root().'/api/v1/notifications'),
 ]))->name('docs.email');
 
 Route::get('docs/sms', fn () => Inertia::render('docs/Sms', [
-    'apiUrl' => url('/api/v1/notifications'),
+    'apiUrl' => request()->root().'/api/v1/notifications',
+    'doc' => ApiDocumentation::for('sms', request()->root().'/api/v1/notifications'),
 ]))->name('docs.sms');
 
 Route::get('docs/portal', fn () => Inertia::render('docs/Portal', [
-    'apiUrl' => url('/api/v1/notifications'),
+    'apiUrl' => request()->root().'/api/v1/notifications',
+    'doc' => ApiDocumentation::for('portal', request()->root().'/api/v1/notifications'),
 ]))->name('docs.portal');
+
+Route::get('docs/{channel}/download/{format}', DocsDownloadController::class)
+    ->whereIn('channel', ['email', 'sms', 'portal'])
+    ->whereIn('format', ['html', 'pdf'])
+    ->name('docs.download');
 
 Route::middleware(['auth'])->group(function () {
     Route::get('dashboard', function (Request $request) {

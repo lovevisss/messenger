@@ -13,7 +13,7 @@ Laravel 13 + Vue 的统一消息接口。当前渠道为邮件、MAS 短信、�
 
 ## 调用接口
 
-可直接打开 `/docs/email`、`/docs/sms` 和 `/docs/portal` 查看可分享的 API 接入文档（无需登录）。
+可直接打开 `/docs/email`、`/docs/sms` 和 `/docs/portal` 查看可分享的 API 接入文档（无需登录）。每页提供 PDF 与单文件 HTML 下载；下载时将当前站点的接口地址写入示例，HTML 可断网打开。
 
 所有接口使用 `Authorization: Bearer <接入系统密钥>`，按接入系统限制为每分钟 120 次。POST 提交成功返回 `202` 和任务号；相同系统的相同 `request_id` 返回原任务与 `200`，不重复发送。接口使用 JSON，请求失败返回 Laravel 标准 JSON 错误。
 

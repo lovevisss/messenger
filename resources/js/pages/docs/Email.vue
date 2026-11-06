@@ -10,65 +10,18 @@ import {
 } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import { copyText } from '@/lib/copyText';
+import type { ApiDocumentation } from '@/types/api-documentation';
 
-const props = defineProps<{ apiUrl: string }>();
+const props = defineProps<{ apiUrl: string; doc: ApiDocumentation }>();
 const copied = ref<string | null>(null);
 const copyFeedback = ref('');
 
-const requestBody = `{
-  "request_id": "jwc:leave:202610080001",
-  "channels": ["email"],
-  "title": "请处理请假申请",
-  "content": "您有一条新的请假申请，请登录业务系统处理。",
-  "recipients": [
-    { "id": "20230001" },
-    { "id": "20230002" }
-  ]
-}`;
+const requestBody = computed(() => props.doc.examples[0].body);
+const curlCommand = computed(() => props.doc.examples[0].curl);
+const powershellCommand = computed(() => props.doc.examples[0].powershell);
+const acceptedResponse = computed(() => props.doc.response);
 
-const curlCommand = computed(
-    () =>
-        `curl -X POST "${props.apiUrl}" -H "Authorization: Bearer <接入系统密钥>" -H "Accept: application/json" -H "Content-Type: application/json" --data '${requestBody.replace(/\n\s*/g, ' ')}'`,
-);
-
-const powershellCommand = computed(
-    () =>
-        `$body = @'\n${requestBody}\n'@\nInvoke-RestMethod -Method Post -Uri "${props.apiUrl}" -Headers @{ Authorization = "Bearer <接入系统密钥>"; Accept = "application/json" } -ContentType "application/json" -Body $body`,
-);
-
-const acceptedResponse = `{
-  "id": "7a646e3c-1c2a-4af3-9553-e8c241237530",
-  "request_id": "jwc:leave:202610080001",
-  "status": "queued",
-  "created_at": "2026-10-08T09:30:00.000000Z",
-  "deliveries": [
-    {
-      "recipient_id": "20230001",
-      "channel": "email",
-      "status": "queued",
-      "provider_ref": null,
-      "business_task_id": null,
-      "attempts": 0,
-      "error": null
-    },
-    {
-      "recipient_id": "20230002",
-      "channel": "email",
-      "status": "queued",
-      "provider_ref": null,
-      "business_task_id": null,
-      "attempts": 0,
-      "error": null
-    }
-  ]
-}`;
-
-const validationResponse = `{
-  "message": "The recipients.0.id field is required.",
-  "errors": {
-    "recipients.0.id": ["The recipients.0.id field is required."]
-  }
-}`;
+const validationResponse = computed(() => props.doc.validationResponse ?? '');
 
 const sections = [
     { id: 'quick-start', label: '接入步骤' },
@@ -187,9 +140,12 @@ async function copy(value: string, key: string) {
                     <p
                         class="mt-5 max-w-2xl text-base leading-8 text-[#66766b]"
                     >
-                        业务系统使用独立 API
-                        密钥提交邮件任务。本平台负责排队、发送和记录每个收件人的处理结果。
+                        {{ doc.intro }}
                     </p>
+                    <div class="mt-6 flex flex-wrap gap-3">
+                        <a href="/docs/email/download/pdf" class="rounded-lg bg-[#194f3e] px-4 py-2 text-sm font-semibold text-white hover:bg-[#276449]">下载 PDF</a>
+                        <a href="/docs/email/download/html" class="rounded-lg border border-[#a9c7b2] bg-white px-4 py-2 text-sm font-semibold text-[#205d43] hover:bg-[#edf5ee]">下载离线 HTML</a>
+                    </div>
                     <div
                         class="mt-8 flex flex-wrap gap-2 text-xs font-medium text-[#49715c]"
                     >
@@ -378,90 +334,10 @@ async function copy(value: string, key: string) {
                             <tbody
                                 class="divide-y divide-[#edf1ed] text-[#586b5d]"
                             >
-                                <tr>
-                                    <td
-                                        class="px-4 py-3 font-mono text-[#1d3f30]"
-                                    >
-                                        request_id
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        必填 · 最多 120 字符
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        按下方统一编号格式生成；同一系统内重复提交返回原任务。
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td
-                                        class="px-4 py-3 font-mono text-[#1d3f30]"
-                                    >
-                                        channels
-                                    </td>
-                                    <td class="px-4 py-3">必填</td>
-                                    <td class="px-4 py-3">
-                                        邮件固定为 <code>["email"]</code>。
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td
-                                        class="px-4 py-3 font-mono text-[#1d3f30]"
-                                    >
-                                        title
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        必填 · 最多 255 字符
-                                    </td>
-                                    <td class="px-4 py-3">邮件主题。</td>
-                                </tr>
-                                <tr>
-                                    <td
-                                        class="px-4 py-3 font-mono text-[#1d3f30]"
-                                    >
-                                        content
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        必填 · 最多 10000 字符
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        纯文本邮件正文；当前不支持 HTML 和附件。
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td
-                                        class="px-4 py-3 font-mono text-[#1d3f30]"
-                                    >
-                                        recipients
-                                    </td>
-                                    <td class="px-4 py-3">必填 · 1–10000 人</td>
-                                    <td class="px-4 py-3">
-                                        收件人数组，共用主题和正文。
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td
-                                        class="px-4 py-3 font-mono text-[#1d3f30]"
-                                    >
-                                        recipients[].id
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        必填 · 最多 120 字符
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        收件人的学工号，作为字符串传入并保留前导零；在本次请求内唯一。
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td
-                                        class="px-4 py-3 font-mono text-[#1d3f30]"
-                                    >
-                                        recipients[].email
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        可选 · 有效邮箱地址
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        填写后覆盖本地每日同步快照中的 dzyx，最多 255 字符；不填则按学工号查询。
-                                    </td>
+                                <tr v-for="field in doc.fields" :key="field[0]">
+                                    <td class="px-4 py-3 font-mono text-[#1d3f30]">{{ field[0] }}</td>
+                                    <td class="px-4 py-3">{{ field[1] }}</td>
+                                    <td class="px-4 py-3">{{ field[2] }}</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -605,50 +481,9 @@ async function copy(value: string, key: string) {
                     >
                         <table class="w-full min-w-[540px] text-left text-sm">
                             <tbody class="divide-y divide-[#edf1ed]">
-                                <tr>
-                                    <td
-                                        class="px-4 py-3 font-mono font-semibold"
-                                    >
-                                        401
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        密钥缺失、无效或已停用
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td
-                                        class="px-4 py-3 font-mono font-semibold"
-                                    >
-                                        422
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        参数不符合要求；响应中的
-                                        <code>errors</code> 标明字段
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td
-                                        class="px-4 py-3 font-mono font-semibold"
-                                    >
-                                        404
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        任务不存在，或不属于当前接入系统
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td
-                                        class="px-4 py-3 font-mono font-semibold"
-                                    >
-                                        429
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        同一接入系统超过每分钟 120 次请求
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td class="px-4 py-3 font-mono font-semibold">503</td>
-                                    <td class="px-4 py-3">本地人员快照尚未同步或无法查询，任务未创建</td>
+                                <tr v-for="error in doc.errors" :key="error[0]">
+                                    <td class="px-4 py-3 font-mono font-semibold">{{ error[0] }}</td>
+                                    <td class="px-4 py-3">{{ error[1] }}</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -683,21 +518,7 @@ async function copy(value: string, key: string) {
                     </p>
                     <h2 class="mt-2 text-2xl font-semibold">投递说明</h2>
                     <ul class="mt-5 space-y-3 text-sm leading-7 text-[#66766b]">
-                        <li>
-                            邮件异步发送。平台需要运行队列
-                            worker；未运行时任务会停留在 <code>queued</code>。
-                        </li>
-                        <li>
-                            <code>accepted</code> 表示 SMTP
-                            服务器接受邮件，无法证明邮件已进入收件箱。收件人还需检查垃圾邮件及邮箱规则。
-                        </li>
-                        <li>
-                            可恢复的连接错误最多尝试三次。若邮件服务器已接受，但队列在记录结果前中断，重试可能产生重复邮件。
-                        </li>
-                        <li>
-                            请将 API
-                            密钥只保存在业务系统服务端。密钥轮换后旧密钥立即失效。
-                        </li>
+                        <li v-for="note in doc.notes" :key="note">{{ note }}</li>
                     </ul>
                 </section>
 

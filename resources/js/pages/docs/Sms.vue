@@ -3,80 +3,16 @@ import { Head, Link } from '@inertiajs/vue3';
 import { Check, Clipboard, MessageSquareText } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import { copyText } from '@/lib/copyText';
+import type { ApiDocumentation } from '@/types/api-documentation';
 
-const props = defineProps<{ apiUrl: string }>();
+const props = defineProps<{ apiUrl: string; doc: ApiDocumentation }>();
 const copied = ref<string | null>(null);
 const copyFeedback = ref('');
-
-const requestBody = `{
-  "request_id": "jwc:notice:202610080001",
-  "channels": ["sms"],
-  "title": "业务提醒",
-  "content": "【已审批短信签名】您有一项业务待处理，请登录业务系统查看。",
-  "recipients": [
-    { "id": "20230001" },
-    { "id": "20230002" }
-  ]
-}`;
-
-const curlCommand = computed(
-    () =>
-        `curl -X POST "${props.apiUrl}" -H "Authorization: Bearer <接入系统密钥>" -H "Accept: application/json" -H "Content-Type: application/json" --data '${requestBody.replace(/\n\s*/g, ' ')}'`,
-);
-const powershellCommand = computed(
-    () =>
-        `$body = @'\n${requestBody}\n'@\nInvoke-RestMethod -Method Post -Uri "${props.apiUrl}" -Headers @{ Authorization = "Bearer <接入系统密钥>"; Accept = "application/json" } -ContentType "application/json" -Body $body`,
-);
-const responseBody = `{
-  "id": "7a646e3c-1c2a-4af3-9553-e8c241237530",
-  "request_id": "jwc:notice:202610080001",
-  "status": "queued",
-  "created_at": "2026-10-08T09:30:00.000000Z",
-  "deliveries": [
-    { "recipient_id": "20230001", "channel": "sms", "status": "queued", "provider_ref": null, "business_task_id": null, "attempts": 0, "error": null },
-    { "recipient_id": "20230002", "channel": "sms", "status": "queued", "provider_ref": null, "business_task_id": null, "attempts": 0, "error": null }
-  ]
-}`;
-
-const fields = [
-    {
-        name: 'request_id',
-        requirement: '必填 · 最多 120 字符',
-        description: '同一接入系统内唯一。重试时复用原编号。',
-    },
-    {
-        name: 'channels',
-        requirement: '必填',
-        description: '短信固定为 ["sms"]。',
-    },
-    {
-        name: 'title',
-        requirement: '必填 · 最多 255 字符',
-        description: '任务标题；MAS 短信发送使用 content 作为正文。',
-    },
-    {
-        name: 'content',
-        requirement: '必填 · 最多 10000 字符',
-        description:
-            '本次请求所有收件人使用同一短信正文。业务系统须提供含已审批签名、符合 MAS 已审批模板的完整内容；平台原样转发。',
-    },
-    {
-        name: 'recipients',
-        requirement: '必填 · 1–10000 人',
-        description: '收件人数组；平台按每批最多 5000 个号码提交 MAS。',
-    },
-    {
-        name: 'recipients[].id',
-        requirement: '必填 · 最多 120 字符',
-        description: '收件人学工号，使用字符串并保留前导零；本次请求内唯一。',
-    },
-    {
-        name: 'recipients[].mobile',
-        requirement: '可选',
-        description:
-            '填写后覆盖本地每日同步快照中的 yddh；不填则按学工号查询。中国大陆手机号码须为 1 开头的 11 位号码，第二位为 3–9。',
-    },
-];
+const requestBody = computed(() => props.doc.examples[0].body);
+const curlCommand = computed(() => props.doc.examples[0].curl);
+const powershellCommand = computed(() => props.doc.examples[0].powershell);
+const responseBody = computed(() => props.doc.response);
+const fields = computed(() => props.doc.fields.map(([name, requirement, description]) => ({ name, requirement, description })));
 
 async function copy(value: string, key: string) {
     const success = await copyText(value);
@@ -140,9 +76,12 @@ async function copy(value: string, key: string) {
                     短信 API 接入文档
                 </h1>
                 <p class="mt-5 text-base leading-8 text-[#66766b]">
-                    业务系统使用独立 API 密钥提交短信任务。平台异步调用云
-                    MAS，记录每位收件人的处理结果。
+                    {{ doc.intro }}
                 </p>
+                <div class="mt-6 flex flex-wrap gap-3">
+                    <a href="/docs/sms/download/pdf" class="rounded-lg bg-[#194f3e] px-4 py-2 text-sm font-semibold text-white hover:bg-[#276449]">下载 PDF</a>
+                    <a href="/docs/sms/download/html" class="rounded-lg border border-[#a9c7b2] bg-white px-4 py-2 text-sm font-semibold text-[#205d43] hover:bg-[#edf5ee]">下载离线 HTML</a>
+                </div>
             </div>
 
             <section class="mt-12 grid gap-3 md:grid-cols-3">
@@ -329,39 +268,17 @@ async function copy(value: string, key: string) {
                 <h2 class="text-2xl font-semibold">错误处理与投递说明</h2>
                 <div class="mt-5 grid gap-3 sm:grid-cols-2">
                     <div
-                        v-for="item in [
-                            '401：密钥缺失、无效或已停用',
-                            '422：参数无效，查看 errors 字段',
-                            '404：任务不存在或不属于当前系统',
-                            '429：同一系统超过每分钟 120 次请求',
-                            '503：本地人员快照尚未同步或无法查询，任务未创建',
-                        ]"
-                        :key="item"
+                        v-for="error in doc.errors"
+                        :key="error[0]"
                         class="rounded-lg border border-[#dbe3dc] bg-white p-4 text-sm"
                     >
-                        {{ item }}
+                        {{ error[0] }}：{{ error[1] }}
                     </div>
                 </div>
                 <ul
                     class="mt-5 list-disc space-y-2 pl-5 text-sm leading-7 text-[#66766b]"
                 >
-                    <li>
-                        需要持续运行队列 worker；否则任务停留在
-                        <code>queued</code>。
-                    </li>
-                    <li>
-                        <code>accepted</code> 仅表示 MAS
-                        已受理，不保证短信最终送达。上游拒绝时会记录
-                        <code>failed</code> 和错误信息。
-                    </li>
-                    <li>
-                        可恢复的连接错误最多尝试三次。若 MAS
-                        已受理，但队列在记录结果前中断，重试可能造成重复短信。
-                    </li>
-                    <li>
-                        请求超时或服务错误后，复用原
-                        <code>request_id</code> 重试，并通过任务 ID 查询结果。
-                    </li>
+                    <li v-for="note in doc.notes" :key="note">{{ note }}</li>
                 </ul>
             </section>
         </main>
